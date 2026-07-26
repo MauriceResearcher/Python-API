@@ -35,7 +35,12 @@ class RagService:
         self.client: Optional[QdrantClient] = None
         self.vectorstore: Optional[QdrantVectorStore] = None
         self.retriever = None
-        self.prompt = ChatPromptTemplate.from_template(config.PROMPT_TEMPLATE)
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", config.SYSTEM_PROMPT),
+                ("human", config.HUMAN_PROMPT),
+            ]
+        )
 
     @property
     def is_ready(self) -> bool:

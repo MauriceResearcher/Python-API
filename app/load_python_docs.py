@@ -8,7 +8,15 @@ from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharac
 # test_script = "https://docs.python.org/3/tutorial/controlflow.html"
 
 def load_python_docs(url):
-    response = requests.get(url)
+
+
+    # timeout=(connect, read): 5s um die Verbindung aufzubauen, 30s um die
+    # Antwort zu lesen. Ohne Timeout würde ein nicht antwortender Server
+    # den kompletten App-Start (build() beim ersten Hochfahren) für immer
+    # blockieren.
+    response = requests.get(url, timeout=(5, 30))
+    response.raise_for_status()
+
     soup = BeautifulSoup(response.content, "html.parser")
 
     # 1. Den echten Seitentitel aus dem <h1>-Tag des HTMLs lesen

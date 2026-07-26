@@ -4,6 +4,13 @@ Diese Tests ersetzen den echten RagService über FastAPIs
 ohne laufenden Ollama-Server, ohne Qdrant und ohne GOOGLE_API_KEY -
 wichtig z.B. für CI-Pipelines ohne diese Abhängigkeiten.
 
+Die client/not_ready_client-Fixtures setzen config.API_KEY zusätzlich
+explizit auf None, damit die Tests unabhängig davon funktionieren, ob im
+lokalen .env zufällig schon ein echter API_KEY eingetragen ist (sonst
+würden z.B. test_query_success etc. mit einem lokal gesetzten API_KEY
+unerwartet mit 401 fehlschlagen). Die eigentlichen Auth-Tests weiter
+unten setzen den Wert gezielt selbst.
+
 Ausführen (nach `pip install -r requirements-dev.txt`):
     pytest -v
 """
@@ -14,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app, get_rag_service
+from app import auth
 
 
 @asynccontextmanager
@@ -58,7 +66,8 @@ class FakeRagService:
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setattr(auth.config, "API_KEY", None)
     test_app = create_app(lifespan=noop_lifespan)
     test_app.dependency_overrides[get_rag_service] = lambda: FakeRagService(ready=True)
     with TestClient(test_app) as c:
@@ -66,7 +75,8 @@ def client():
 
 
 @pytest.fixture
-def not_ready_client():
+def not_ready_client(monkeypatch):
+    monkeypatch.setattr(auth.config, "API_KEY", None)
     test_app = create_app(lifespan=noop_lifespan)
     test_app.dependency_overrides[get_rag_service] = lambda: FakeRagService(ready=False)
     with TestClient(test_app) as c:
@@ -111,3 +121,43 @@ def test_query_missing_field_is_rejected(client):
 def test_query_returns_503_when_service_not_ready(not_ready_client):
     response = not_ready_client.post("/query", json={"question": "Hallo"})
     assert response.status_code == 503
+
+
+def test_query_open_when_no_api_key_configured(client):
+    # client-Fixture setzt API_KEY bereits auf None -> Endpoint bleibt offen.
+    response = client.post("/query", json={"question": "Hallo"})
+    assert response.status_code == 200
+
+
+def test_query_rejected_without_header_when_api_key_configured(client, monkeypatch):
+    monkeypatch.setattr(auth.config, "API_KEY", "test-secret")
+    response = client.post("/query", json={"question": "Hallo"})
+    assert response.status_code == 401
+
+
+def test_query_rejected_with_wrong_api_key(client, monkeypatch):
+    monkeypatch.setattr(auth.config, "API_KEY", "test-secret")
+    response = client.post(
+        "/query",
+        json={"question": "Hallo"},
+        headers={"X-API-Key": "falscher-wert"},
+    )
+    assert response.status_code == 401
+
+
+def test_query_succeeds_with_correct_api_key(client, monkeypatch):
+    monkeypatch.setattr(auth.config, "API_KEY", "test-secret")
+    response = client.post(
+        "/query",
+        json={"question": "Hallo"},
+        headers={"X-API-Key": "test-secret"},
+    )
+    assert response.status_code == 200
+
+
+def test_health_is_not_protected_by_api_key(client, monkeypatch):
+    # /health bleibt bewusst ungeschützt (Docker HEALTHCHECK schickt keinen
+    # Header) - muss auch bei konfiguriertem API_KEY ohne Header erreichbar sein.
+    monkeypatch.setattr(auth.config, "API_KEY", "test-secret")
+    response = client.get("/health")
+    assert response.status_code == 200

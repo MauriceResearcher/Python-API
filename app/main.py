@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from .rag_service import RagService
 from .schemas import HealthResponse, QueryRequest, QueryResponse, SourceChunk
+from .auth import require_api_key
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ def create_app(lifespan=lifespan) -> FastAPI:
     app = FastAPI(
         title="Python Docs RAG API",
         description="Beantwortet Fragen zu den offiziellen Python-Tutorial-Docs per RAG "
-                    "(Qdrant + Ollama-Embeddings + Gemini).",
+        "(Qdrant + Ollama-Embeddings + Gemini).",
         version="1.0.0",
         lifespan=lifespan,
     )
@@ -63,10 +64,10 @@ def create_app(lifespan=lifespan) -> FastAPI:
     def health(service: RagService = Depends(get_rag_service)) -> HealthResponse:
         return HealthResponse(status="ok", ready=service.is_ready)
 
-    @app.post("/query", response_model=QueryResponse)
+    @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)])
     def query(
-            request: QueryRequest,
-            service: RagService = Depends(get_rag_service),
+        request: QueryRequest,
+        service: RagService = Depends(get_rag_service),
     ) -> QueryResponse:
         if not service.is_ready:
             raise HTTPException(status_code=503, detail="RAG-Service ist noch nicht bereit.")
@@ -75,7 +76,10 @@ def create_app(lifespan=lifespan) -> FastAPI:
             answer, docs = service.ask(request.question)
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Fehler bei der Beantwortung der Frage")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=500,
+                detail="Interner Fehler bei der Beantwortung der Frage.",
+            ) from exc
 
         sources = [
             SourceChunk(

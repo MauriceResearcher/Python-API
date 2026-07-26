@@ -4,8 +4,14 @@ services:
     container_name: ollama
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
+    # Kein "ports:"-Mapping auf den Host: der api-Container erreicht ollama
+    # intern über "http://ollama:11434" im Compose-Netzwerk, das reicht.
+    # Ollama hat KEINE eingebaute Authentifizierung - eine Freigabe auf
+    # allen Host-Interfaces (0.0.0.0) wäre auf einem Server mit offener
+    # Firewall von aussen erreichbar. Für lokales Debugging bei Bedarf nur
+    # auf localhost binden, z.B.:
+    # ports:
+    #   - "127.0.0.1:11434:11434"
     restart: unless-stopped
 
   api:

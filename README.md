@@ -5,9 +5,12 @@ Gemini als LLM), containerisiert mit Docker / Docker Compose.
 
 ## Endpunkte
 
-- `GET /health` → `{"status": "ok", "ready": true|false}`
+- `GET /health` → `{"status": "ok", "ready": true|false}` — **ungeschützt**
+  (wird auch vom Docker-`HEALTHCHECK` ohne Header aufgerufen).
 - `POST /query` mit Body `{"question": "..."}` →
   `{"answer": "...", "sources": [{"header_1": ..., "header_2": ..., "content_preview": ...}, ...]}`
+  — **geschützt**, sobald `API_KEY` in der `.env` gesetzt ist (siehe unten).
+  Client schickt dann `X-API-Key: <gleicher Wert>` mit.
 - Interaktive Doku (automatisch von FastAPI generiert): `/docs`
 
 ## Lokal ohne Docker starten
@@ -39,6 +42,16 @@ Die Tests in `tests/test_api.py` ersetzen den `RagService` per
 `app.dependency_overrides` durch ein Fake-Objekt — sie brauchen also
 **keinen** laufenden Ollama-Server, kein Qdrant und keinen `GOOGLE_API_KEY`.
 
+> **Wichtig:** `app/main.py` stellt dafür `create_app(lifespan=...)` als
+> Factory bereit. Der Grund: `dependency_overrides` greift nur bei Routen,
+> die den Service per `Depends()` bekommen — der `lifespan`-Hook ruft
+> `rag_service.build()` aber direkt auf und würde sonst bei **jeder**
+> `TestClient`-Instanz einen echten `QdrantClient(path=...)` öffnen, ohne
+> den vorherigen zu schliessen. Ergebnis wäre ein
+> `RuntimeError: Storage folder ... is already accessed by another
+> instance of Qdrant client.` ab dem zweiten Test. Die Tests übergeben
+> deshalb einen No-Op-`lifespan`, der `build()` gar nicht erst aufruft.
+
 > Hinweis zur Herkunft dieses Projekts: Ich konnte diese Tests in meiner
 > Sandbox nicht selbst ausführen (kein Netzwerkzugriff dort, daher auch kein
 > `pip install`). Geprüft habe ich stattdessen mit `python -m py_compile`
@@ -50,15 +63,23 @@ Die Tests in `tests/test_api.py` ersetzen den `RagService` per
 ## Mit Docker Compose starten (empfohlen)
 
 ```bash
-cp .env.example .env   # GOOGLE_API_KEY eintragen
+cp .env.example .env   # GOOGLE_API_KEY (und optional API_KEY) eintragen
 docker compose up --build -d
 
 # Einmalig: Embedding-Modell in den Ollama-Container laden
 docker compose exec ollama ollama pull nomic-embed-text
 
 curl http://localhost:8000/health
+
+# Ohne gesetzten API_KEY:
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
+  -d '{"question": "Wie funktioniert eine List Comprehension?"}'
+
+# Mit gesetztem API_KEY (Wert muss zu API_KEY in der .env passen):
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dein-geheimer-key" \
   -d '{"question": "Wie funktioniert eine List Comprehension?"}'
 ```
 
@@ -75,6 +96,42 @@ docker run -p 8000:8000 \
 (`host.docker.internal` funktioniert unter Docker Desktop/macOS/Windows;
 unter Linux ggf. `--add-host=host.docker.internal:host-gateway` ergänzen
 oder gleich docker-compose mit dem Ollama-Service nutzen.)
+
+## Sicherheit
+
+Bereits umgesetzt:
+
+- **`POST /query` per API-Key geschützt** (`app/auth.py`). Ohne `API_KEY` in
+  der `.env` bleibt der Endpoint bewusst offen (mit Warnung im Log) — für
+  jeden Einsatz ausserhalb von `localhost` unbedingt setzen.
+- **Keine internen Fehlerdetails mehr im 500er-Response** — nur noch
+  serverseitig geloggt (`logger.exception(...)`), der Client bekommt eine
+  generische Meldung.
+- **Ollama-Port nicht mehr auf den Host exponiert** — Ollama hat keine
+  eigene Authentifizierung; der `api`-Container erreicht es intern über
+  den Compose-Service-Namen, eine Freigabe nach aussen war unnötig.
+- **Timeout beim Scraping** (`requests.get(..., timeout=(5, 30))`) —
+  verhindert, dass ein nicht antwortender Server den App-Start für immer
+  blockiert.
+- **System-/Human-Message-Trennung im Prompt** statt einer einzigen
+  Nachricht — erschwert Prompt-Injection über die Nutzerfrage etwas
+  (verhindert sie nicht vollständig).
+
+Bewusst (noch) nicht umgesetzt, aber gut zu wissen:
+
+- **Kein Rate Limiting.** Auch mit API-Key kann ein einzelner autorisierter
+  Client die API fluten und Gemini-Kosten verursachen. Für echten Einsatz:
+  z.B. `slowapi` (FastAPI-Middleware) oder Rate Limiting auf einem
+  vorgeschalteten Reverse Proxy.
+- **Kein TLS im Container selbst.** Uvicorn spricht nur HTTP — vor einen
+  Reverse Proxy (Traefik/Nginx/Caddy) stellen, wenn die API übers Internet
+  erreichbar sein soll.
+- **`requirements.txt` nicht versionsgepinnt.** Für reproduzierbare,
+  auditierbare Builds z.B. mit `pip-compile` (pip-tools) ein Lockfile mit
+  Hashes erzeugen.
+- **API-Key ist ein einzelnes, geteiltes Geheimnis**, kein Pro-User-Token.
+  Reicht für einen Client/eine kleine Gruppe, nicht für ein Produkt mit
+  unterschiedlichen Nutzerrechten.
 
 ## Bekannte Stolpersteine
 
