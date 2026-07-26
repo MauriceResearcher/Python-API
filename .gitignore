@@ -1,15 +1,21 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-*.venv
+# Umweltspezifische Secrets & Konfigurationen
+.env
+.env.*
 *.env
-*.idea/
 
-*.nqdrant_db/
-*.n.env/
+# IDEs & Editor-Ordner
+.idea/
+.vscode/
+.DS_Store
+
+# Vektordatenbank & Caches
+qdrant_db/
+**/qdrant_db/
+.pytest_cache/
+__pycache__/
+.mypy_cache/
+
+# Virtuelle Umgebungen
+.venv/
+venv/
+

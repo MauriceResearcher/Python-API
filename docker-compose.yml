@@ -1,0 +1,34 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+  api:
+    build: .
+    container_name: python-docs-rag-api
+    depends_on:
+      - ollama
+    ports:
+      - "8000:8000"
+    environment:
+      # Im Compose-Netzwerk heisst der Ollama-Container "ollama",
+      # nicht "localhost" - das ist der wichtigste Unterschied zum
+      # lokalen (nicht-containerisierten) Betrieb.
+      OLLAMA_BASE_URL: "http://ollama:11434"
+    env_file:
+      # Enthält GOOGLE_API_KEY etc., siehe .env.example.
+      # WICHTIG: .env NICHT ins Image kopieren (siehe Dockerfile) -
+      # env_file injiziert es nur zur Laufzeit in den Container.
+      - .env
+    volumes:
+      - qdrant_data:/code/qdrant_db
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  qdrant_data:

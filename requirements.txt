@@ -1,0 +1,13 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+python-dotenv>=1.0
+requests>=2.31
+beautifulsoup4>=4.12
+html2text>=2024.2.26
+langchain-core>=0.3
+langchain-text-splitters>=0.3
+langchain-qdrant>=0.2
+qdrant-client>=1.9
+langchain-ollama>=0.2
+langchain-google-genai>=2.0

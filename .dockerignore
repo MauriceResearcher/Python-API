@@ -1,0 +1,17 @@
+# Git & Doku
+.git
+.gitignore
+README.md
+
+# Virtuelle Umgebungen & Caches
+.venv
+__pycache__
+.pytest_cache
+tests/
+
+# Lokale Datenbanken & Secrets
+qdrant_db/
+**/qdrant_db/
+.env
+.env.*
+*.env
