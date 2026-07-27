@@ -82,15 +82,15 @@ def create_app(lifespan=lifespan) -> FastAPI:
     @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)])
     @limiter.limit("5/minute")
     def query(
-        request: QueryRequest,
-        body: QueryRequest,
+        request: Request,
+        payload: QueryRequest,
         service: RagService = Depends(get_rag_service),
     ) -> QueryResponse:
         if not service.is_ready:
             raise HTTPException(status_code=503, detail="RAG-Service ist noch nicht bereit.")
 
         try:
-            answer, docs = service.ask(body.question)
+            answer, docs = service.ask(payload.question)
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Fehler bei der Beantwortung der Frage")
             raise HTTPException(
@@ -111,7 +111,7 @@ def create_app(lifespan=lifespan) -> FastAPI:
             return QueryResponse(answer=answer, sources=sources)
 
         else:
-            return QueryResponse(answer=answer)
+            return QueryResponse(answer=answer, sources=[])
 
     return app
 

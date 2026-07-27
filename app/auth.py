@@ -17,7 +17,8 @@ localhost MUSS API_KEY in der .env gesetzt werden.
 import logging
 import secrets
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Security
+from fastapi.security import APIKeyHeader
 
 from . import config
 
@@ -30,21 +31,14 @@ if not config.API_KEY:
         "von localhost erreichbar ist."
     )
 
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-async def require_api_key(x_api_key: str = Header(default=None)) -> None:
+async def require_api_key(x_api_key: str = Security(api_key_header)) -> None:
     """FastAPI-Dependency, die (falls konfiguriert) einen gültigen
-    X-API-Key-Header verlangt. Als dependencies=[Depends(...)] auf einer
-    Route eingesetzt, statt als Funktionsparameter, weil der Rückgabewert
-    (None) nirgends gebraucht wird - es geht nur ums "durchlassen oder
-    nicht"."""
+    X-API-Key-Header verlangt."""
     if not config.API_KEY:
-        # Kein Key konfiguriert -> bewusst offen, siehe Modul-Docstring.
+        # Kein Key konfiguriert -> bewusst offen (Fail-Open)
         return
 
-    # secrets.compare_digest() statt "==": ein normaler String-Vergleich
-    # bricht bei der ersten abweichenden Stelle ab, wodurch die
-    # Vergleichsdauer indirekt verrät, wie viele Zeichen am Anfang bereits
-    # korrekt waren (Timing-Angriff). compare_digest() vergleicht immer in
-    # konstanter Zeit.
     if not x_api_key or not secrets.compare_digest(x_api_key, config.API_KEY):
         raise HTTPException(status_code=401, detail="Ungültiger oder fehlender API-Key.")
