@@ -11,3 +11,4 @@ langchain-qdrant>=0.2
 qdrant-client>=1.9
 langchain-ollama>=0.2
 langchain-google-genai>=2.0
+slowapi==0.1.9

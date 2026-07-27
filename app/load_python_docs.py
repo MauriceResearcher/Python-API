@@ -1,3 +1,9 @@
+"""
+RAG pipeline -> Docs lesen, metadaten auslesen, zweifaches chunking
+
+"""
+
+
 import re
 import requests
 import html2text
@@ -79,6 +85,8 @@ def chunk_splitter(markdown_text, page_title):
 
 
 """
+
+Alter Testcode
 # Ergebnis prüfen
 print(f"Anzahl finaler Chunks: {len(chunks)}")
 print("\n--- BEISPIEL CHUNK METADATEN ---")

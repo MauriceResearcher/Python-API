@@ -1,11 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from .rag_service import RagService
 from .schemas import HealthResponse, QueryRequest, QueryResponse, SourceChunk
 from .auth import require_api_key
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,6 +20,10 @@ logger = logging.getLogger(__name__)
 # werden darf.
 rag_service = RagService()
 
+
+
+# Wenn True zeigt die KI die genutzten Quellen in der Antwort an
+show_sources = False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,6 +60,10 @@ def create_app(lifespan=lifespan) -> FastAPI:
     stattdessen einen No-Op-Lifespan (siehe tests/test_api.py) und
     umgehen so den echten build()-Aufruf komplett.
     """
+
+    limiter = Limiter(key_func=get_remote_address)
+
+
     app = FastAPI(
         title="Python Docs RAG API",
         description="Beantwortet Fragen zu den offiziellen Python-Tutorial-Docs per RAG "
@@ -60,20 +72,25 @@ def create_app(lifespan=lifespan) -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     @app.get("/health", response_model=HealthResponse)
     def health(service: RagService = Depends(get_rag_service)) -> HealthResponse:
         return HealthResponse(status="ok", ready=service.is_ready)
 
     @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)])
+    @limiter.limit("5/minute")
     def query(
         request: QueryRequest,
+        body: QueryRequest,
         service: RagService = Depends(get_rag_service),
     ) -> QueryResponse:
         if not service.is_ready:
             raise HTTPException(status_code=503, detail="RAG-Service ist noch nicht bereit.")
 
         try:
-            answer, docs = service.ask(request.question)
+            answer, docs = service.ask(body.question)
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Fehler bei der Beantwortung der Frage")
             raise HTTPException(
@@ -81,16 +98,20 @@ def create_app(lifespan=lifespan) -> FastAPI:
                 detail="Interner Fehler bei der Beantwortung der Frage.",
             ) from exc
 
-        sources = [
-            SourceChunk(
-                header_1=doc.metadata.get("header_1"),
-                header_2=doc.metadata.get("header_2"),
-                header_3=doc.metadata.get("header_3"),
-                content_preview=doc.page_content[:200],
-            )
-            for doc in docs
-        ]
-        return QueryResponse(answer=answer, sources=sources)
+        if show_sources:
+            sources = [
+                SourceChunk(
+                    header_1=doc.metadata.get("header_1"),
+                    header_2=doc.metadata.get("header_2"),
+                    header_3=doc.metadata.get("header_3"),
+                    content_preview=doc.page_content[:200],
+                )
+                for doc in docs
+            ]
+            return QueryResponse(answer=answer, sources=sources)
+
+        else:
+            return QueryResponse(answer=answer)
 
     return app
 
