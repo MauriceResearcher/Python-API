@@ -14,10 +14,7 @@ from slowapi.util import get_remote_address
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Ein einziges, prozessweites RagService-Objekt. Wird NICHT pro Request
-# gebaut, sondern einmal beim Start (siehe lifespan unten) - u.a. weil
-# der lokale Qdrant-Client nur von einem Prozess gleichzeitig geöffnet
-# werden darf.
+# build once when starting
 rag_service = RagService()
 
 
@@ -116,6 +113,5 @@ def create_app(lifespan=lifespan) -> FastAPI:
     return app
 
 
-# Produktions-App - das ist es, was "uvicorn app.main:app" (lokal & im
-# Dockerfile) tatsächlich startet. Nutzt den echten lifespan von oben.
+# production app
 app = create_app()

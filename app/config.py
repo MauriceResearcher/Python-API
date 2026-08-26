@@ -60,10 +60,7 @@ DOC_LINKS = [
     "https://docs.python.org/3/tutorial/appendix.html",
 ]
 
-# Getrennt in System- (Anweisung) und Human-Message (Kontext + Frage),
-# statt beides in einer einzigen Nachricht zu bündeln. Das gibt dem Modell
-# eine klarere Rollentrennung zwischen "Anweisung" und "Nutzereingabe" -
-# erschwert (nicht verhindert!) Prompt-Injection über die Frage etwas.
+# TODO: besserer prompt etc.
 SYSTEM_PROMPT = """You are a Python expert. EXCLUSIVELY use the documentation excerpts \
 provided in the Context section to answer questions.
 If the answer is partly contained, provide the best possible answer based on the context.
