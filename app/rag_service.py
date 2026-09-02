@@ -18,9 +18,16 @@ from typing import List, Optional, Tuple
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+#embeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
+
+# Ranking
+from langchain_core.retrievers import BaseRetriever
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain_community.document_compressors import FlashrankRerank
 
 from . import config
 from .load_python_docs import chunk_splitter, load_python_docs
@@ -87,9 +94,19 @@ class RagService:
             # nachträglich einsammeln, damit close() ihn findet.
             self.client = getattr(self.vectorstore, "client", None)
 
-        self.retriever = self.vectorstore.as_retriever(
+        base_retriever = self.vectorstore.as_retriever(
             search_kwargs={"k": config.RETRIEVER_K}
         )
+
+        # 2. FlashRank Reranker initialisieren
+        # filtert / sortiert die Dokumente neu auf die Top 3 besten Ergebnisse
+        reranker = FlashrankRerank(top_n=3)
+
+        # 3. ContextualCompressionRetriever zusammenbauen
+        self.retriever = ContextualCompressionRetriever(
+            base_compressor=reranker, base_retriever=base_retriever
+        )
+
 
     def close(self) -> None:
         """Gibt den Qdrant-Datei-Lock wieder frei. Im lifespan-Hook nach

@@ -38,7 +38,7 @@ GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0"))
 API_KEY = os.getenv("API_KEY") or None
 
 # --- Retrieval ---
-RETRIEVER_K = int(os.getenv("RETRIEVER_K", "5"))
+RETRIEVER_K = int(os.getenv("RETRIEVER_K", "10"))
 
 # --- Zu indexierende Python-Tutorial-Seiten ---
 DOC_LINKS = [
