@@ -1,87 +1,86 @@
-from trulens.apps.app import instrument  # Zukunftssicherer Import
-from trulens.apps.custom import TruCustomApp
-from trulens.core import Metric, TruSession
-from trulens.core.select import Select
+import numpy as np
+from trulens.apps.app import TruApp, instrument
+from trulens.core import Metric, Selector, TruSession
+from trulens.dashboard import run_dashboard
 from trulens.providers.google import Google
 
 from app import config
 from app.rag_service import RagService
 
-# 1. TruLens Session & Provider initialisieren
+# 1. TruLens Session & Provider
 session = TruSession()
-session.reset_database()  # Setzt die lokale SQLite-Eval-DB zurück
+session.reset_database()
 
 provider = Google(model_engine=config.GEMINI_MODEL)
 
-# 2. RAG-Triade mit der OTEL-konformen Syntax definieren
-
-# a) Groundedness: Basiert die Antwort auf dem Kontext?
-m_groundedness = (
-    Metric(
-        implementation=provider.groundedness_measure_with_cot_reasons,
-        name="Groundedness",
-    )
-    .on(Select.RecordCalls.query.rets.context)
-    .on(Select.RecordCalls.query.rets.answer)
+# 2. Metriken definieren
+f_groundedness = Metric(
+    implementation=provider.groundedness_measure_with_cot_reasons_consider_answerability,
+    name="Groundedness",
+    selectors={
+        "source": Selector.select_context(collect_list=True),
+        "statement": Selector.select_record_output(),
+        "question": Selector.select_record_input(),
+    },
 )
 
-# b) Context Relevance: Passt der geholte Kontext zur Frage?
-m_context_relevance = (
-    Metric(
-        implementation=provider.qs_relevance_with_cot_reasons,
-        name="Context Relevance",
-    )
-    .on(Select.RecordCalls.query.args.question)
-    .on(Select.RecordCalls.query.rets.context)
+f_answer_relevance = Metric(
+    implementation=provider.relevance_with_cot_reasons,
+    name="Answer Relevance",
+    selectors={
+        "prompt": Selector.select_record_input(),
+        "response": Selector.select_record_output(),
+    },
 )
 
-# c) Answer Relevance: Beantwortet die Antwort die Frage?
-m_answer_relevance = (
-    Metric(
-        implementation=provider.relevance_with_cot_reasons,
-        name="Answer Relevance",
-    )
-    .on(Select.RecordCalls.query.args.question)
-    .on(Select.RecordCalls.query.rets.answer)
+f_context_relevance = Metric(
+    implementation=provider.context_relevance_with_cot_reasons,
+    name="Context Relevance",
+    selectors={
+        "question": Selector.select_record_input(),
+        "context": Selector.select_context(collect_list=False),
+    },
+    agg=np.mean,
 )
 
-metrics = [m_groundedness, m_context_relevance, m_answer_relevance]
 
+# 3. Custom Class mit @instrument dekorieren
+class InstrumentedRagApp:
 
-# 3. RAG-Wrapper erstellen
-class TruRagWrapper:
-    def __init__(self, service: RagService):
-        self.service = service
+    def __init__(self, rag_service: RagService):
+        self.rag_service = rag_service
 
     @instrument
-    def query(self, question: str) -> dict:
-        answer, docs = self.service.ask(question)
-        context = "\n\n".join(doc.page_content for doc in docs)
-        return {"answer": answer, "context": context}
+    def query(self, question: str) -> str:
+        answer, _ = self.rag_service.ask(question)
+        return answer
 
 
-# 4. Service instanziieren & bauen
+# 4. Instanziieren & mit TruApp wrappen
 rag_service = RagService()
 rag_service.build()
 
-rag_wrapper = TruRagWrapper(rag_service)
+custom_rag_app = InstrumentedRagApp(rag_service)
 
-# 5. App mit TruCustomApp und den Metrics wrappen
-tru_app = TruCustomApp(
-    rag_wrapper, app_name="Python_RAG_Evaluator", feedbacks=metrics
+tru_rag = TruApp(
+    custom_rag_app,
+    app_name="Python_Docs_RAG",
+    app_version="v1_gemini",
+    feedbacks=[f_groundedness, f_answer_relevance, f_context_relevance],
 )
 
-# 6. Test-Fragen durchführen
-test_questions = [
+# 5. Test-Queries ausführen
+test_queries = [
     "Wie erstelle ich eine Liste in Python?",
     "Welche Quantencomputer-Algorithmen unterstützt Python native?",
 ]
 
-with tru_app as recorder:
-    for q in test_questions:
-        print(f"\n[Frage]: {q}")
-        result = rag_wrapper.query(q)
-        print(f"[Antwort]: {result['answer'][:150]}...\n")
+with tru_rag as recording:
+    for query in test_queries:
+        print(f"\n[Frage]: {query}")
+        response = custom_rag_app.query(query)
+        print(f"[Antwort]: {response[:150]}...\n")
 
-# 7. Dashboard starten
-session.run_dashboard()
+# 6. Leaderboard & Dashboard
+print(session.get_leaderboard())
+run_dashboard(session)
