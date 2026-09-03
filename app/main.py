@@ -11,6 +11,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+#wichtig für tracing
+from dotenv import load_dotenv
+
+load_dotenv()  # Liest die .env-Datei aus
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -20,7 +25,7 @@ rag_service = RagService()
 
 
 # Wenn True zeigt die KI die genutzten Quellen in der Antwort an
-show_sources = False
+show_sources = True
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

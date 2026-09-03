@@ -29,6 +29,9 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
 from langchain_community.document_compressors import FlashrankRerank
 
+#trace function
+from langsmith import traceable
+
 from . import config
 from .load_python_docs import chunk_splitter, load_python_docs
 
@@ -136,6 +139,7 @@ class RagService:
             collection_name=config.QDRANT_COLLECTION_NAME,
         )
 
+    @traceable(name="RAG Query Execution")
     def ask(self, question: str) -> Tuple[str, List[Document]]:
         """Beantwortet eine Frage. Ruft den Retriever nur EINMAL auf
         (im Gegensatz zum Original-Terminal-Loop, der ihn zweimal aufrief:

@@ -16,3 +16,4 @@ numpy~=2.5.1
 trulens~=2.13.1
 langchain~=1.3.14
 pytest~=9.1.1
+langsmith~=0.10.10
