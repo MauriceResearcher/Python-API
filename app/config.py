@@ -75,3 +75,16 @@ Question:
 {question}
 
 Answer:"""
+
+
+# Erster Ansatz für einen LLM as a judge prompt
+VERIFY_PROMPT = """You are a strict fact-checker. 
+Given the Context and the Proposed Answer, determine if EVERY statement in the Answer is fully supported by the Context.
+Respond with JSON only: {{"valid": true, "reason": "..."}} or {{"valid": false, "reason": "..."}}
+
+Context:
+{context}
+
+Proposed Answer:
+{answer}
+"""

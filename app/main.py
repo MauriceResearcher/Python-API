@@ -14,6 +14,8 @@ from slowapi.util import get_remote_address
 #wichtig für tracing
 from dotenv import load_dotenv
 
+from fastapi.responses import StreamingResponse
+
 load_dotenv()  # Liest die .env-Datei aus
 
 logging.basicConfig(level=logging.INFO)
@@ -81,6 +83,25 @@ def create_app(lifespan=lifespan) -> FastAPI:
     def health(service: RagService = Depends(get_rag_service)) -> HealthResponse:
         return HealthResponse(status="ok", ready=service.is_ready)
 
+    @app.post(
+        "/query/stream",
+        dependencies=[Depends(require_api_key)]
+    )
+    @limiter.limit("5/minute")
+    async def query_stream(
+            request: Request,
+            payload: QueryRequest,
+            service: RagService = Depends(get_rag_service)
+    ):
+        if not service.is_ready:
+            raise HTTPException(status_code=503, detail="RAG-Service ist noch nicht bereit.")
+
+        return StreamingResponse(
+            service.ask_stream(payload.question),
+            media_type="text/plain"
+        )
+
+
     @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)])
     @limiter.limit("5/minute")
     def query(
@@ -116,6 +137,8 @@ def create_app(lifespan=lifespan) -> FastAPI:
             return QueryResponse(answer=answer, sources=[])
 
     return app
+
+
 
 
 # production app

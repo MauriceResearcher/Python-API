@@ -13,6 +13,7 @@ Warum eine Klasse statt der Modul-Ebene wie im Original main.py?
 """
 
 import logging
+import json
 from typing import List, Optional, Tuple
 
 from langchain_core.documents import Document
@@ -35,6 +36,9 @@ from langsmith import traceable
 from . import config
 from .load_python_docs import chunk_splitter, load_python_docs
 
+# für async
+from typing import AsyncGenerator
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +49,7 @@ class RagService:
         self.client: Optional[QdrantClient] = None
         self.vectorstore: Optional[QdrantVectorStore] = None
         self.retriever = None
+        self.verify_prompt = ChatPromptTemplate.from_template(config.VERIFY_PROMPT)
         self.prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", config.SYSTEM_PROMPT),
@@ -141,30 +146,65 @@ class RagService:
 
     @traceable(name="RAG Query Execution")
     def ask(self, question: str) -> Tuple[str, List[Document]]:
-        """Beantwortet eine Frage. Ruft den Retriever nur EINMAL auf
-        (im Gegensatz zum Original-Terminal-Loop, der ihn zweimal aufrief:
-        einmal fürs Debug-Print, einmal versteckt in der RAG-Chain)."""
         if not self.is_ready:
             raise RuntimeError("RagService.build() muss vor ask() aufgerufen werden.")
 
         docs = self.retriever.invoke(question)
         context = "\n\n".join(doc.page_content for doc in docs)
+
+        # 1. Hauptantwort generieren
         prompt_value = self.prompt.invoke({"context": context, "question": question})
         response = self.llm.invoke(prompt_value)
 
-        # Manche Gemini-Antworten liefern response.content als Liste von
-        # Content-Blöcken statt als reinen String (z.B. [{"type": "text",
-        # "text": "..."}]). Beide Formen werden hier zu einem String
-        # zusammengefasst.
-        if isinstance(response.content, list):
-            parts = []
-            for part in response.content:
-                if isinstance(part, str):
-                    parts.append(part)
-                elif isinstance(part, dict) and "text" in part:
-                    parts.append(part["text"])
-            answer = "".join(parts)
-        else:
-            answer = str(response.content)
+        answer = (
+            "".join(
+                p if isinstance(p, str) else p.get("text", "") for p in response.content
+            )
+            if isinstance(response.content, list)
+            else str(response.content)
+        )
+
+        # 2. Robustes LLM-as-a-Judge Guardrail
+        verification_input = self.verify_prompt.invoke(
+            {"context": context, "answer": answer}
+        )
+        verification_result = self.llm.invoke(verification_input)
+
+        try:
+            # Säubere eventuelle Markdown-Codeblöcke (` ```json ... ``` `)
+            raw_json = str(verification_result.content).strip()
+            if raw_json.startswith("```"):
+                raw_json = raw_json.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
+
+            eval_data = json.loads(raw_json)
+            if not eval_data.get("valid", True):
+                logger.warning(
+                    "Guardrail ausgelöst: %s", eval_data.get("reason", "Kein Grund angegeben")
+                )
+                answer = "Die Antwort konnte anhand der verfügbaren Dokumentation nicht verifiziert werden."
+        except Exception as e:
+            logger.error("Fehler beim Parsing des Verification-JSONs: %s", e)
 
         return answer, docs
+
+    @traceable(name="RAG Query Execution Stream")
+    async def ask_stream(self, question: str) -> AsyncGenerator[str, None]:
+        if not self.is_ready:
+            raise RuntimeError("RagService.build() muss vor ask() aufgerufen werden.")
+
+        # AWAIT ist hier zwingend notwendig, damit FastAPI nicht blockiert!
+        docs = await self.retriever.ainvoke(question)
+        context = "\n\n".join(doc.page_content for doc in docs)
+
+        prompt_value = await self.prompt.ainvoke({"context": context, "question": question})
+
+        async for chunk in self.llm.astream(prompt_value):
+            content = chunk.content
+            if isinstance(content, str):
+                yield content
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, str):
+                        yield part
+                    elif isinstance(part, dict) and "text" in part:
+                        yield part["text"]
