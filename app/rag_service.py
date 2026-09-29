@@ -171,19 +171,38 @@ class RagService:
         verification_result = self.llm.invoke(verification_input)
 
         try:
-            # Säubere eventuelle Markdown-Codeblöcke (` ```json ... ``` `)
-            raw_json = str(verification_result.content).strip()
-            if raw_json.startswith("```"):
-                raw_json = raw_json.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
+            # 1. Content extrahieren (fängt sowohl Strings als auch Listen von Content-Blocks ab)
+            raw_content = verification_result.content
+            if isinstance(raw_content, list) and len(raw_content) > 0:
+                first_block = raw_content[0]
+                if isinstance(first_block, dict):
+                    raw_text = first_block.get("text", "")
+                else:
+                    raw_text = getattr(first_block, "text", str(first_block))
+            else:
+                raw_text = str(raw_content)
 
-            eval_data = json.loads(raw_json)
+            # 2. Eventuelle Markdown-Codeblöcke säubern
+            raw_text = raw_text.strip()
+            if "```" in raw_text:
+                raw_text = raw_text.split("```")[1]
+                if raw_text.startswith("json"):
+                    raw_text = raw_text[4:]
+            raw_text = raw_text.strip()
+
+            # 3. JSON parsen
+            eval_data = json.loads(raw_text)
             if not eval_data.get("valid", True):
                 logger.warning(
                     "Guardrail ausgelöst: %s", eval_data.get("reason", "Kein Grund angegeben")
                 )
                 answer = "Die Antwort konnte anhand der verfügbaren Dokumentation nicht verifiziert werden."
         except Exception as e:
-            logger.error("Fehler beim Parsing des Verification-JSONs: %s", e)
+            logger.error(
+                "Fehler beim Parsing des Verification-JSONs: %s | Raw output: %s",
+                e,
+                verification_result.content,
+            )
 
         return answer, docs
 

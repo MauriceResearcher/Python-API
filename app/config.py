@@ -11,12 +11,17 @@ siehe docker-compose.yml).
 
 import os
 
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- Qdrant (lokaler, eingebetteter Modus über einen Dateipfad) ---
-QDRANT_PATH = os.getenv("QDRANT_PATH", "./qdrant_db")
+# Projekt-Root ermitteln (zwei Ebenen über config.py)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Fester Pfad für Qdrant auf Projekt-Ebene
+QDRANT_PATH = os.getenv("QDRANT_PATH", str(BASE_DIR / "qdrant_db"))
 QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "python_docs")
 
 # --- Ollama Embeddings ---
@@ -28,7 +33,7 @@ OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 # --- Google Gemini LLM ---
 # GOOGLE_API_KEY wird von langchain-google-genai automatisch aus der
 # Umgebung gelesen, muss hier nicht explizit weitergereicht werden.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0"))
 
 # --- Zugriffsschutz für POST /query ---
@@ -80,11 +85,13 @@ Answer:"""
 # Erster Ansatz für einen LLM as a judge prompt
 VERIFY_PROMPT = """You are a strict fact-checker. 
 Given the Context and the Proposed Answer, determine if EVERY statement in the Answer is fully supported by the Context.
-Respond with JSON only: {{"valid": true, "reason": "..."}} or {{"valid": false, "reason": "..."}}
 
 Context:
 {context}
 
 Proposed Answer:
 {answer}
+
+Respond ONLY with raw JSON matching this structure (no markdown tags, no backticks):
+{{"valid": true, "reason": "..."}}
 """
